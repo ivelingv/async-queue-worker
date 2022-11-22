@@ -12,7 +12,8 @@ namespace AsyncQueueWorker.Controllers
     [ApiController]
     public class BackgroundWorkerController : ControllerBase
     {
-        private readonly BackgroundWorkerService _backgroundWorkerService;
+        private readonly BackgroundWorkerService 
+            _backgroundWorkerService;
         
         public BackgroundWorkerController(
             BackgroundWorkerService backgroundWorkerService)
@@ -63,9 +64,13 @@ namespace AsyncQueueWorker.Controllers
         [HttpGet("status/{jobId}")]
         public async Task<IActionResult> StatusAsync(string jobId)
         {
+            var job = _backgroundWorkerService.GetJobStatus(jobId);
+
             return Ok(new
             {
-                Message = $"Backgroung worker job [{jobId}] queued",
+                Message = $"Backgroung worker job " +
+                    $"[{job?.JobId}] status is [{job?.Status}]",
+
                 Timestamp = DateTime.Now.Ticks
             });
         }
@@ -75,6 +80,28 @@ namespace AsyncQueueWorker.Controllers
         {
             var jobItems = _backgroundWorkerService.Pending();
             return Ok(jobItems);
+        }
+
+        [HttpGet("pause")]
+        public async Task<IActionResult> PauseAsync()
+        {
+            _backgroundWorkerService.Pause();
+            return Ok(new
+            {
+                Message = $"Backgroung worker pausing work",
+                Timestamp = DateTime.Now.Ticks
+            });
+        }
+
+        [HttpGet("resume")]
+        public async Task<IActionResult> ResumeAsync()
+        {
+            _backgroundWorkerService.Resume();
+            return Ok(new
+            {
+                Message = $"Backgroung worker resuming work",
+                Timestamp = DateTime.Now.Ticks
+            });
         }
     }
 }

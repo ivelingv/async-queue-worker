@@ -10,9 +10,10 @@ namespace AsyncQueueWorker.Services
     {
         protected static object Locker = new();
 
-        protected Queue<JobItem> PendingItems { get; } = new();
-        protected CancellationTokenSource CancellationTokenSource { get; } = new();
+        protected List<JobItem> PendingItems { get; } = new();
+        protected CancellationTokenSource CancellationTokenSource { get; private set; } = new();
         protected List<Thread> Threads { get; } = new();
+        protected ManualResetEvent Event { get; } = new(true);
 
         private void DoWork(object parameter)
         {
@@ -20,6 +21,7 @@ namespace AsyncQueueWorker.Services
 
             while (true)
             {
+                var isResuming = false;
                 if (cancellationToken.IsCancellationRequested)
                 {
                     Console.WriteLine(
@@ -27,24 +29,42 @@ namespace AsyncQueueWorker.Services
                     return;
                 }
 
-                Thread.Sleep(5000);
+                Thread.Sleep(3000);
+
+                while(!Event.WaitOne(1000))
+                {
+                    isResuming = true;
+                    Console.WriteLine(
+                       $"Paused thread [{Thread.CurrentThread.ManagedThreadId}]");
+                }
+
+                if (isResuming)
+                {
+                    Console.WriteLine(
+                      $"Resuming thread [{Thread.CurrentThread.ManagedThreadId}]");
+                }
 
                 JobItem jobItem = null;
 
                 lock (Locker)
                 {
-                    PendingItems.TryDequeue(out jobItem);
+                    jobItem = PendingItems
+                        .Where(e => e.Status == Status.Pending)
+                        .OrderBy(e => e.Timestamp)
+                        .FirstOrDefault();
+
+                    if (jobItem is null)
+                    {
+                        Console.WriteLine(
+                            $"There are not jobs " +
+                            $"for processing in thread " +
+                            $"[{Thread.CurrentThread.ManagedThreadId}]");
+
+                        continue;
+                    }
+
+                    jobItem.SetStatus(Status.InProgress);
                 }
-
-                if (jobItem is null)
-                {
-                    Console.WriteLine(
-                        $"There are not jobs " +
-                        $"for processing in thread " +
-                        $"[{Thread.CurrentThread.ManagedThreadId}]");
-
-                    continue;
-                }    
 
                 for (var i = 0; i < 10; i++)
                 {
@@ -61,6 +81,8 @@ namespace AsyncQueueWorker.Services
 
                     Thread.Sleep(1000);
                 }
+
+                jobItem.SetStatus(Status.Complated);
             }
         }
 
@@ -76,13 +98,12 @@ namespace AsyncQueueWorker.Services
             lock(Locker)
             {
                 var hasItem = PendingItems
-                    .ToList()
                     .Where(e => e.JobId == jobId)
                     .Any();
 
                 if (!hasItem)
                 {
-                    PendingItems.Enqueue(
+                    PendingItems.Add(
                         new JobItem(jobId));
                 }
             }
@@ -96,9 +117,27 @@ namespace AsyncQueueWorker.Services
             }
         }
 
+        public JobItem GetJobStatus(string jobId)
+        {
+            return PendingItems
+                .Where(e => e.JobId == jobId)
+                .FirstOrDefault();
+        }
+
         public void Stop()
         {
             CancellationTokenSource.Cancel();
+            CancellationTokenSource = new CancellationTokenSource();
+        }
+
+        public void Pause()
+        {
+            Event.Reset();
+        }
+
+        public void Resume()
+        {
+            Event.Set();
         }
     }
 }
